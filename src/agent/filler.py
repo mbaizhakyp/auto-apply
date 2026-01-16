@@ -3,14 +3,13 @@ import asyncio
 from typing import Optional
 from playwright.async_api import Page
 from src.scout.browser import BrowserSession
-from src.database.models import Application, Job
-from src.agent.hitl import HITLManager
+from src.analytics.logger import log_event
 
 logger = logging.getLogger(__name__)
 
 class FormFiller:
-    def __init__(self, headless: bool = False):
-        self.browser_session = BrowserSession(headless=headless)
+    def __init__(self, headless: bool = False, session_file: Optional[str] = None):
+        self.browser_session = BrowserSession(headless=headless, session_file=session_file)
         self.page: Optional[Page] = None
         self.hitl = HITLManager()
 
@@ -56,6 +55,7 @@ class FormFiller:
         if await self.hitl.request_approval(application.job_id, {}):
             logger.info(f"APPROVED! Submitting application for job {application.job_id}...")
             # await self.submit()
+            log_event("application_submitted", {"job_id": application.job_id})
         else:
             logger.warning(f"REJECTED. Skipping submission for job {application.job_id}.")
         

@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.analytics.logger import log_event
 from src.database.config import async_session_maker
 from src.database.models import Job, Application, JobStatus
 from src.intelligence.engine import IntelligenceEngine
@@ -111,6 +113,8 @@ class JobProcessor:
                 logger.info(f"Generated application for {job.title} (Score: {job.fit_score})")
                 await session.commit()
                 
+                log_event("application_generated", {"job_id": job.id, "score": job.fit_score})
+                
                 # 5. Push to Apply Queue
                 await self.redis.lpush("apply_queue", app.id)
                 logger.info(f"Pushed Application {app.id} to apply_queue")
@@ -118,6 +122,7 @@ class JobProcessor:
             else:
                 job.status = JobStatus.REJECTED
                 logger.info(f"Rejected job {job.title} (Score: {job.fit_score})")
+                log_event("job_rejected", {"job_id": job.id, "score": job.fit_score})
                 await session.commit()
 
 if __name__ == "__main__":
