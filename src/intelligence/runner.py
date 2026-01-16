@@ -109,11 +109,16 @@ class JobProcessor:
                 )
                 session.add(app)
                 logger.info(f"Generated application for {job.title} (Score: {job.fit_score})")
+                await session.commit()
+                
+                # 5. Push to Apply Queue
+                await self.redis.lpush("apply_queue", app.id)
+                logger.info(f"Pushed Application {app.id} to apply_queue")
+
             else:
                 job.status = JobStatus.REJECTED
                 logger.info(f"Rejected job {job.title} (Score: {job.fit_score})")
-            
-            await session.commit()
+                await session.commit()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
