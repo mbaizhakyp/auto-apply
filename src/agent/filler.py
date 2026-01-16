@@ -4,14 +4,21 @@ from typing import Optional
 from playwright.async_api import Page
 from src.scout.browser import BrowserSession
 from src.analytics.logger import log_event
+from src.database.models import Application, Job
+from src.agent.hitl import HITLManager
+
+from src.agent.hitl import HITLManager
+from src.agent.vision import VisionEngine
+from src.intelligence.engine import IntelligenceEngine
 
 logger = logging.getLogger(__name__)
 
 class FormFiller:
-    def __init__(self, headless: bool = False, session_file: Optional[str] = None):
+    def __init__(self, engine: IntelligenceEngine, headless: bool = False, session_file: Optional[str] = None):
         self.browser_session = BrowserSession(headless=headless, session_file=session_file)
         self.page: Optional[Page] = None
         self.hitl = HITLManager()
+        self.vision = VisionEngine(engine)
 
     async def start(self):
         """Initialize the browser session."""
@@ -45,11 +52,24 @@ class FormFiller:
         await self.navigate_to_application(application)
         
         # This is where Vision-to-Action logic comes in.
-        # For now, we stub out a 'Vision' check.
-        await self.analyze_page()
-        
-        # Helper to click easy apply if exists
-        await self.click_easy_apply()
+        # Loop until completion or max steps
+        max_steps = 10
+        for step in range(max_steps):
+            logger.info(f"--- Step {step + 1} / {max_steps} ---")
+            
+            # Analyze & Act
+            action_result = await self.analyze_page(application)
+            
+            if action_result == "done":
+                logger.info("Vision Engine indicates application is complete.")
+                break
+                
+            if action_result == "fail":
+                logger.warning("Vision Engine failed to determine next action.")
+                break
+                
+            # Short pause between steps
+            await self.browser_session.random_sleep(2, 4)
         
         # HITL Check before "Submitting" (Simulated)
         if await self.hitl.request_approval(application.job_id, {}):
@@ -62,15 +82,45 @@ class FormFiller:
         logger.info(f"Finished processing application for job {application.job_id}")
 
 
-    async def analyze_page(self):
+    async def analyze_page(self, application: Application) -> str:
         """
-        Placeholder for Vision/LLM analysis of the page structure.
+        Uses VisionEngine to decide next steps. Returns status string.
         """
-        logger.info("Analyzing page structure (Vision-to-Action Placeholder)...")
-        # In real implementation:
-        # screenshot = await self.page.screenshot()
-        # actions = await self.llm.analyze(screenshot)
-        await asyncio.sleep(2)
+        logger.info("Analyzing page structure with Vision Engine...")
+        
+        # User context (should be richer in production)
+        user_context = "User Name: Margulan Baizhakyp. Skills: Python, React." 
+        
+        try:
+            action = await self.vision.get_next_action(self.page, user_context)
+            logger.info(f"Vision Decision: {action.action_type} -> {action.selector or 'N/A'}")
+            
+            if action.action_type == "done":
+                return "done"
+            if action.action_type == "fail":
+                return "fail"
+            
+            # Execute Action
+            if action.action_type == "click" and action.selector:
+                await self.page.click(action.selector)
+            elif action.action_type == "type" and action.selector:
+                await self.page.fill(action.selector, action.text_value or "")
+            elif action.action_type == "select" and action.selector:
+                await self.page.select_option(action.selector, label=action.text_value)
+            elif action.action_type == "upload" and action.selector:
+                # Resolve file path based on requested document type
+                file_path = application.resume_path if action.text_value == "resume" else None
+                if file_path:
+                    await self.page.set_input_files(action.selector, file_path)
+                    logger.info(f"Uploaded {file_path}")
+                else:
+                    logger.warning(f"Upload requested for {action.text_value} but no file found")
+                    
+            return "continue"
+                
+        except Exception as e:
+            logger.error(f"Vision analysis failed: {e}")
+            return "fail"
 
     async def click_easy_apply(self):
         """

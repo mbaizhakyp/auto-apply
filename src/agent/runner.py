@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.database.config import async_session_maker
 from src.database.models import Application
 from src.agent.filler import FormFiller
+from src.intelligence.engine import IntelligenceEngine
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -15,7 +16,8 @@ logger = logging.getLogger(__name__)
 class AgentRunner:
     def __init__(self):
         self.redis = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
-        self.filler = FormFiller(headless=False) # Headful for debugging/Vision
+        self.engine = IntelligenceEngine(model_provider="openai")
+        self.filler = FormFiller(engine=self.engine, headless=False) # Headful for debugging/Vision
 
     async def run(self):
         logger.info("Agent Runner started. Listening on apply_queue...")
